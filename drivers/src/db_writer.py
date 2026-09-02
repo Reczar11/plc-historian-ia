@@ -12,6 +12,13 @@ def get_connection():
     )
 
 
+def get_active_tags(conn):
+    with conn.cursor() as cur:
+        cur.execute('SELECT name FROM tags ORDER BY name')
+        rows = cur.fetchall()
+    return [row[0] for row in rows]
+
+
 def insert_readings(conn, readings):
     with conn.cursor() as cur:
         for tag_name, data in readings.items():
