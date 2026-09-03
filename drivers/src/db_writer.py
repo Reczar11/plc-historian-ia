@@ -1,5 +1,9 @@
 import os
+import time
+import logging
 import psycopg2
+
+logger = logging.getLogger('historian.db')
 
 
 def get_connection():
@@ -10,6 +14,19 @@ def get_connection():
         password=os.getenv('TIMESCALE_PASSWORD'),
         dbname=os.getenv('TIMESCALE_DB'),
     )
+
+
+def get_resilient_connection(max_backoff_seconds=30):
+    backoff = 1
+    while True:
+        try:
+            conn = get_connection()
+            logger.info('Connected to TimescaleDB.')
+            return conn
+        except psycopg2.OperationalError as exc:
+            logger.warning('Could not connect to TimescaleDB (%s). Retrying in %s seconds...', exc, backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff_seconds)
 
 
 def get_active_tags(conn):
