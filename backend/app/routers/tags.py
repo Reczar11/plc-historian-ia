@@ -15,6 +15,7 @@ class TagIn(BaseModel):
     engineering_unit: Optional[str] = None
     alarm_low: Optional[float] = None
     alarm_high: Optional[float] = None
+    asset_id: Optional[int] = None
 
 
 @router.get('/tags')
@@ -22,7 +23,7 @@ def list_tags(dep=Depends(require_role('operator', 'engineer', 'admin'))):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT id, name, plc_address, data_type, engineering_unit, alarm_low, alarm_high FROM tags ORDER BY name')
+            cur.execute('SELECT id, name, plc_address, data_type, engineering_unit, alarm_low, alarm_high, asset_id FROM tags ORDER BY name')
             rows = cur.fetchall()
         return rows
     finally:
@@ -36,13 +37,13 @@ def create_tag(tag: TagIn, dep=Depends(require_role('engineer', 'admin'))):
         with conn.cursor() as cur:
             try:
                 cur.execute(
-                    'INSERT INTO tags (name, plc_address, data_type, engineering_unit, alarm_low, alarm_high) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
-                    (tag.name, tag.plc_address, tag.data_type, tag.engineering_unit, tag.alarm_low, tag.alarm_high),
+                    'INSERT INTO tags (name, plc_address, data_type, engineering_unit, alarm_low, alarm_high, asset_id) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id',
+                    (tag.name, tag.plc_address, tag.data_type, tag.engineering_unit, tag.alarm_low, tag.alarm_high, tag.asset_id),
                 )
+                new_id = cur.fetchone()['id']
             except psycopg2.IntegrityError:
                 conn.rollback()
-                raise HTTPException(status_code=409, detail='A tag with this name already exists')
-            new_id = cur.fetchone()['id']
+                raise HTTPException(status_code=409, detail='A tag with this name already exists, or asset_id is invalid')
         conn.commit()
         return {'id': new_id}
     finally:
@@ -55,8 +56,8 @@ def update_tag(tag_id: int, tag: TagIn, dep=Depends(require_role('engineer', 'ad
     try:
         with conn.cursor() as cur:
             cur.execute(
-                'UPDATE tags SET name = %s, plc_address = %s, data_type = %s, engineering_unit = %s, alarm_low = %s, alarm_high = %s, updated_at = now() WHERE id = %s',
-                (tag.name, tag.plc_address, tag.data_type, tag.engineering_unit, tag.alarm_low, tag.alarm_high, tag_id),
+                'UPDATE tags SET name = %s, plc_address = %s, data_type = %s, engineering_unit = %s, alarm_low = %s, alarm_high = %s, asset_id = %s, updated_at = now() WHERE id = %s',
+                (tag.name, tag.plc_address, tag.data_type, tag.engineering_unit, tag.alarm_low, tag.alarm_high, tag.asset_id, tag_id),
             )
             updated = cur.rowcount
         conn.commit()
