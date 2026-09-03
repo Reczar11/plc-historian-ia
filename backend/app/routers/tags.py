@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from ..db import get_connection
-from ..auth import verify_api_key
+from ..auth import require_role
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ class TagIn(BaseModel):
 
 
 @router.get('/tags')
-def list_tags(dep=Depends(verify_api_key)):
+def list_tags(dep=Depends(require_role('operator', 'engineer', 'admin'))):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -30,7 +30,7 @@ def list_tags(dep=Depends(verify_api_key)):
 
 
 @router.post('/tags')
-def create_tag(tag: TagIn, dep=Depends(verify_api_key)):
+def create_tag(tag: TagIn, dep=Depends(require_role('engineer', 'admin'))):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -50,7 +50,7 @@ def create_tag(tag: TagIn, dep=Depends(verify_api_key)):
 
 
 @router.put('/tags/{tag_id}')
-def update_tag(tag_id: int, tag: TagIn, dep=Depends(verify_api_key)):
+def update_tag(tag_id: int, tag: TagIn, dep=Depends(require_role('engineer', 'admin'))):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -68,7 +68,7 @@ def update_tag(tag_id: int, tag: TagIn, dep=Depends(verify_api_key)):
 
 
 @router.delete('/tags/{tag_id}')
-def delete_tag(tag_id: int, dep=Depends(verify_api_key)):
+def delete_tag(tag_id: int, dep=Depends(require_role('engineer', 'admin'))):
     conn = get_connection()
     try:
         with conn.cursor() as cur:

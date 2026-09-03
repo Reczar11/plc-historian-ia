@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from .routers import readings, live, tags
+from .routers import readings, live, tags, auth_router
 
 app = FastAPI(title='PLC Historian API')
 
+app.include_router(auth_router.router)
 app.include_router(readings.router)
 app.include_router(live.router)
 app.include_router(tags.router)

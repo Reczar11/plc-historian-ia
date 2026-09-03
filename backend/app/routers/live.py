@@ -1,19 +1,21 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..db import get_connection
-from ..auth import API_KEY
+from ..auth import decode_token
 
 router = APIRouter()
 
 MIN_INTERVAL = 0.5
 DEFAULT_TAGS = ['Temperature', 'Pressure', 'Vibration', 'MotorCurrent']
+ALLOWED_ROLES = ('operator', 'engineer', 'admin')
 
 
 @router.websocket('/ws/live')
 async def websocket_live(websocket: WebSocket):
     params = websocket.query_params
-    api_key = params.get('api_key')
-    if api_key != API_KEY:
+    token = params.get('token')
+    payload = decode_token(token) if token else None
+    if payload is None or payload.get('role') not in ALLOWED_ROLES:
         await websocket.close(code=4401)
         return
 
@@ -40,15 +42,15 @@ async def websocket_live(websocket: WebSocket):
                 cur.execute(query, tuple(tags))
                 rows = cur.fetchall()
             conn.close()
-            payload = []
+            payload_out = []
             for row in rows:
-                payload.append({
+                payload_out.append({
                     'time': row['time'].isoformat(),
                     'tag_name': row['tag_name'],
                     'value': row['value'],
                     'quality': row['quality'],
                 })
-            await websocket.send_json(payload)
+            await websocket.send_json(payload_out)
             await asyncio.sleep(interval)
     except WebSocketDisconnect:
         pass

@@ -1,7 +1,7 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from ..db import get_connection
-from ..auth import verify_api_key
+from ..auth import require_role
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ RAW_MAX_RANGE_SECONDS = 24 * 60 * 60
 
 
 @router.get('/readings')
-def get_readings(tag_name: str, start: str, end: str, resolution: str = 'raw', limit: int = 5000, dep=Depends(verify_api_key)):
+def get_readings(tag_name: str, start: str, end: str, resolution: str = 'raw', limit: int = 5000, dep=Depends(require_role('operator', 'engineer', 'admin'))):
     if resolution not in TABLES:
         raise HTTPException(status_code=400, detail='resolution must be one of: raw, 1min, 1hour')
     if limit > MAX_ROWS:
