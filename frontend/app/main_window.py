@@ -1,51 +1,24 @@
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
-    QVBoxLayout,
     QTreeWidget,
     QTreeWidgetItem,
     QLabel,
-    QSplitter,
     QMessageBox,
+    QPushButton,
+    QDockWidget,
+    QToolBar,
+    QSizePolicy,
 )
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt
+from .trend_widget import TrendWidget
+from .alarms_panel import AlarmsPanel
+from .settings_dialog import SettingsDialog
+from .theme import color
 
-
-DARK_STYLESHEET = """
-QMainWindow {
-    background-color: #1e1e1e;
-}
-QWidget {
-    background-color: #1e1e1e;
-    color: #e0e0e0;
-    font-size: 13px;
-}
-QTreeWidget {
-    background-color: #252526;
-    border: 1px solid #3c3c3c;
-    color: #e0e0e0;
-}
-QTreeWidget::item {
-    padding: 4px;
-}
-QTreeWidget::item:selected {
-    background-color: #094771;
-}
-QLabel#statusLabel {
-    color: #4ec9b0;
-    padding: 8px;
-    font-weight: bold;
-}
-QHeaderView::section {
-    background-color: #2d2d30;
-    color: #e0e0e0;
-    padding: 4px;
-    border: none;
-}
-"""
-
-TAG_COLOR = QColor('#4ec9b0')
+# Styling now lives in app/theme/aveva_dark.qss (applied globally in main.py)
+TAG_COLOR = QColor(color('accent'))
 
 
 class MainWindow(QMainWindow):
@@ -53,34 +26,77 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.api_client = api_client
         self.setWindowTitle('PLC Historian')
-        self.resize(1200, 800)
-        self.setStyleSheet(DARK_STYLESHEET)
+        self.resize(1300, 850)
+        self.setDockNestingEnabled(True)
 
-        central = QWidget()
-        outer_layout = QVBoxLayout(central)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
+        # --- Central widget: Trend is always visible, like a SCADA canvas ---
+        self.trend_widget = TrendWidget(api_client)
+        self.setCentralWidget(self.trend_widget)
 
-        status_label = QLabel('Logged in as ' + str(api_client.username) + ' (' + str(api_client.role) + ')')
-        status_label.setObjectName('statusLabel')
-        outer_layout.addWidget(status_label)
-
-        splitter = QSplitter(Qt.Horizontal)
-
+        # --- Left dock: Asset Tree ---
         self.tag_tree = QTreeWidget()
         self.tag_tree.setHeaderLabel('Asset Tree')
-        self.tag_tree.setMinimumWidth(280)
-        splitter.addWidget(self.tag_tree)
+        self.tag_tree.itemClicked.connect(self.handle_tree_click)
 
-        placeholder = QLabel('Select a tag to view trends here.')
-        placeholder.setAlignment(Qt.AlignCenter)
-        splitter.addWidget(placeholder)
+        self.asset_dock = QDockWidget('Asset Tree', self)
+        self.asset_dock.setObjectName('asset_dock')
+        self.asset_dock.setWidget(self.tag_tree)
+        self.asset_dock.setFeatures(
+            QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable
+        )
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.asset_dock)
 
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        # --- Bottom dock: Alarms ---
+        self.alarms_panel = AlarmsPanel(api_client)
+        self.alarms_dock = QDockWidget('Alarms', self)
+        self.alarms_dock.setObjectName('alarms_dock')
+        self.alarms_dock.setWidget(self.alarms_panel)
+        self.alarms_dock.setFeatures(
+            QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable
+        )
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.alarms_dock)
 
-        outer_layout.addWidget(splitter)
-        self.setCentralWidget(central)
+        self.resizeDocks([self.alarms_dock], [220], Qt.Vertical)
 
+        self.build_menu()
+        self.build_top_bar()
+
+        self.load_asset_tree()
+
+    def build_top_bar(self):
+        # A fixed toolbar pinned to the top of the window (independent of
+        # the dock layout), holding the session label and Settings button.
+        toolbar = QToolBar('Top Bar', self)
+        toolbar.setObjectName('top_bar')
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        self.addToolBar(Qt.TopToolBarArea, toolbar)
+
+        status_label = QLabel('Logged in as ' + str(self.api_client.username) + ' (' + str(self.api_client.role) + ')')
+        status_label.setObjectName('statusLabel')
+        toolbar.addWidget(status_label)
+
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        toolbar.addWidget(spacer)
+
+        settings_button = QPushButton('Settings')
+        settings_button.clicked.connect(self.open_settings)
+        toolbar.addWidget(settings_button)
+
+    def build_menu(self):
+        menu_bar = self.menuBar()
+        view_menu = menu_bar.addMenu('View')
+        view_menu.addAction(self.asset_dock.toggleViewAction())
+        view_menu.addAction(self.alarms_dock.toggleViewAction())
+
+        admin_menu = menu_bar.addMenu('Admin')
+        settings_action = admin_menu.addAction('Settings...')
+        settings_action.triggered.connect(self.open_settings)
+
+    def open_settings(self):
+        dialog = SettingsDialog(self.api_client, self)
+        dialog.exec()
         self.load_asset_tree()
 
     def load_asset_tree(self):
@@ -104,5 +120,11 @@ class MainWindow(QMainWindow):
         for tag in node.get('tags', []):
             tag_item = QTreeWidgetItem([tag['name']])
             tag_item.setForeground(0, TAG_COLOR)
+            tag_item.setData(0, Qt.UserRole, tag['name'])
             item.addChild(tag_item)
         return item
+
+    def handle_tree_click(self, item, column):
+        tag_name = item.data(0, Qt.UserRole)
+        if tag_name:
+            self.trend_widget.show_tag(tag_name)

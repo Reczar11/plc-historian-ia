@@ -5,11 +5,13 @@ import psycopg2
 from dotenv import load_dotenv
 from .simulated_source import SimulatedSource
 from .real_source import RealAllenBradleySource
+from .modbus_source import ModbusSource
 from .db_writer import (
     get_resilient_connection,
     insert_readings,
     get_active_tags,
     get_tag_limits,
+    get_plc_config,
     get_active_alarms,
     trigger_alarm,
     clear_alarm,
@@ -30,9 +32,16 @@ logger = logging.getLogger('historian.writer')
 TAG_REFRESH_SECONDS = 30
 
 
-def get_source():
-    if os.getenv('DATA_SOURCE', 'simulated') == 'real':
-        return RealAllenBradleySource()
+def build_source(plc_config):
+    data_source = plc_config.get('data_source', 'simulated')
+    if data_source == 'real':
+        return RealAllenBradleySource(plc_config.get('plc_ip'))
+    if data_source == 'modbus':
+        return ModbusSource(
+            plc_config.get('plc_ip'),
+            plc_config.get('port') or 502,
+            plc_config.get('unit_id') or 1,
+        )
     return SimulatedSource()
 
 
@@ -69,12 +78,14 @@ def evaluate_alarms(conn, readings, tag_limits, active_alarms):
 
 
 def main():
-    source = get_source()
     conn = get_resilient_connection()
     tags = get_active_tags(conn)
     tag_limits = get_tag_limits(conn)
     active_alarms = get_active_alarms(conn)
-    logger.info('Active tags: ' + str(tags))
+    plc_config = get_plc_config(conn)
+    source = build_source(plc_config)
+    logger.info('Active tags: ' + str([t['name'] for t in tags]))
+    logger.info('PLC config: ' + str(plc_config))
     last_refresh = time.time()
     try:
         while True:
@@ -82,6 +93,13 @@ def main():
                 if time.time() - last_refresh > TAG_REFRESH_SECONDS:
                     tags = get_active_tags(conn)
                     tag_limits = get_tag_limits(conn)
+
+                    new_plc_config = get_plc_config(conn)
+                    if new_plc_config != plc_config:
+                        logger.info('PLC config changed: ' + str(plc_config) + ' -> ' + str(new_plc_config))
+                        plc_config = new_plc_config
+                        source = build_source(plc_config)
+
                     last_refresh = time.time()
                 if not tags:
                     time.sleep(1)

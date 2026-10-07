@@ -1,7 +1,6 @@
 import math
 import random
 from datetime import datetime, timezone
-
 from .data_source import PLCDataSource
 
 _PROFILES = {
@@ -69,7 +68,7 @@ def _clamp_severity(severity: float) -> float:
 
 class SimulatedSource(PLCDataSource):
     def __init__(self) -> None:
-        self._tick = 0
+        self.tick = 0
         self._anomalies: dict[str, dict[str, float | int]] = {}
         self._next_random_anomaly = random.randint(200, 400)
 
@@ -81,11 +80,12 @@ class SimulatedSource(PLCDataSource):
             "severity": severity,
         }
 
-    def read_tags(self, tag_names: list[str]) -> dict[str, dict]:
-        if not tag_names:
+    def read_tags(self, tags: list[dict]) -> dict[str, dict]:
+        if not tags:
             return {}
 
-        self._tick += 1
+        tag_names = [tag['name'] for tag in tags]
+        self.tick += 1
         self._maybe_trigger_random_anomaly(tag_names)
 
         timestamp = _iso_now()
@@ -99,17 +99,17 @@ class SimulatedSource(PLCDataSource):
         return readings
 
     def _maybe_trigger_random_anomaly(self, tag_names: list[str]) -> None:
-        if self._tick < self._next_random_anomaly:
+        if self.tick < self._next_random_anomaly:
             return
 
         candidates = tag_names or list(_PROFILES)
         self.inject_anomaly(random.choice(candidates), random.uniform(0.15, 0.35))
-        self._next_random_anomaly = self._tick + random.randint(200, 400)
+        self._next_random_anomaly = self.tick + random.randint(200, 400)
 
     def _sample(self, tag_name: str) -> float:
         profile = _PROFILES.get(tag_name, _DEFAULT_PROFILE)
         wave = math.sin(
-            2 * math.pi * self._tick / profile["period"] + profile["phase"]
+            2 * math.pi * self.tick / profile["period"] + profile["phase"]
         )
         value = (
             profile["base"]

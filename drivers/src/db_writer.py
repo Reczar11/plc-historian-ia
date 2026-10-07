@@ -30,10 +30,15 @@ def get_resilient_connection(max_backoff_seconds=30):
 
 
 def get_active_tags(conn):
+    """Returns the full tag records the driver needs to read from the PLC:
+    name (used as the reading's key), plc_address (raw address string,
+    meaning depends on data_source), and data_type (used to decode
+    multi-register values for protocols like Modbus).
+    """
     with conn.cursor() as cur:
-        cur.execute('SELECT name FROM tags ORDER BY name')
+        cur.execute('SELECT name, plc_address, data_type FROM tags ORDER BY name')
         rows = cur.fetchall()
-    return [row[0] for row in rows]
+    return [{'name': row[0], 'plc_address': row[1], 'data_type': row[2]} for row in rows]
 
 
 def get_tag_limits(conn):
@@ -44,6 +49,15 @@ def get_tag_limits(conn):
     for row in rows:
         limits[row[0]] = {'low': row[1], 'high': row[2]}
     return limits
+
+
+def get_plc_config(conn):
+    with conn.cursor() as cur:
+        cur.execute('SELECT plc_ip, data_source, port, unit_id FROM plc_config WHERE id = 1')
+        row = cur.fetchone()
+    if row is None:
+        return {'plc_ip': None, 'data_source': 'simulated', 'port': None, 'unit_id': None}
+    return {'plc_ip': row[0], 'data_source': row[1], 'port': row[2], 'unit_id': row[3]}
 
 
 def get_active_alarms(conn):

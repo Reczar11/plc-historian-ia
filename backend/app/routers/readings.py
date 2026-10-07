@@ -15,8 +15,11 @@ MAX_ROWS = 10000
 RAW_MAX_RANGE_SECONDS = 24 * 60 * 60
 
 
-@router.get('/readings')
-def get_readings(tag_name: str, start: str, end: str, resolution: str = 'raw', limit: int = 5000, dep=Depends(require_role('operator', 'engineer', 'admin'))):
+def fetch_readings_rows(conn, tag_name: str, start: str, end: str, resolution: str = 'raw', limit: int = 5000):
+    """Shared query logic used by both the /readings endpoint and the
+    Excel export endpoint, so both stay consistent with a single
+    implementation of the resolution/range rules.
+    """
     if resolution not in TABLES:
         raise HTTPException(status_code=400, detail='resolution must be one of: raw, 1min, 1hour')
     if limit > MAX_ROWS:
@@ -38,15 +41,23 @@ def get_readings(tag_name: str, start: str, end: str, resolution: str = 'raw', l
     table = TABLES[resolution]
     time_column = 'time' if resolution == 'raw' else 'bucket'
     value_column = 'value' if resolution == 'raw' else 'avg_value'
+    with conn.cursor() as cur:
+        query = (
+            'SELECT ' + time_column + ' AS time, ' + value_column + ' AS value FROM ' + table
+            + ' WHERE tag_name = %s AND ' + time_column + ' BETWEEN %s AND %s ORDER BY ' + time_column + ' LIMIT %s'
+        )
+        cur.execute(query, (tag_name, start, end, limit))
+        rows = cur.fetchall()
+    result = []
+    for row in rows:
+        result.append({'time': row['time'].isoformat(), 'value': row['value']})
+    return result
+
+
+@router.get('/readings')
+def get_readings(tag_name: str, start: str, end: str, resolution: str = 'raw', limit: int = 5000, dep=Depends(require_role('operator', 'engineer', 'admin'))):
     conn = get_connection()
     try:
-        with conn.cursor() as cur:
-            query = 'SELECT ' + time_column + ' AS time, ' + value_column + ' AS value FROM ' + table + ' WHERE tag_name = %s AND ' + time_column + ' BETWEEN %s AND %s ORDER BY ' + time_column + ' LIMIT %s'
-            cur.execute(query, (tag_name, start, end, limit))
-            rows = cur.fetchall()
-        result = []
-        for row in rows:
-            result.append({'time': row['time'].isoformat(), 'value': row['value']})
-        return result
+        return fetch_readings_rows(conn, tag_name, start, end, resolution, limit)
     finally:
         conn.close()
